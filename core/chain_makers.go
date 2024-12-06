@@ -98,11 +98,8 @@ func (b *BlockGen) Difficulty() *big.Int {
 // block.
 func (b *BlockGen) SetParentBeaconRoot(root common.Hash) {
 	b.header.ParentBeaconRoot = &root
-	var (
-		blockContext = NewEVMBlockContext(b.header, b.cm, &b.header.Coinbase)
-		vmenv        = vm.NewEVM(blockContext, vm.TxContext{}, b.statedb, b.cm.config, vm.Config{})
-	)
-	ProcessBeaconBlockRoot(root, vmenv, b.statedb)
+	blockContext := NewEVMBlockContext(b.header, b.cm, &b.header.Coinbase)
+	ProcessBeaconBlockRoot(root, vm.NewEVM(blockContext, b.statedb, b.cm.config, vm.Config{}))
 }
 
 // addTx adds a transaction to the generated block. If no coinbase has
@@ -116,8 +113,12 @@ func (b *BlockGen) addTx(bc *BlockChain, vmConfig vm.Config, tx *types.Transacti
 	if b.gasPool == nil {
 		b.SetCoinbase(common.Address{})
 	}
+	var (
+		blockContext = NewEVMBlockContext(b.header, bc, &b.header.Coinbase)
+		evm          = vm.NewEVM(blockContext, b.statedb, b.cm.config, vmConfig)
+	)
 	b.statedb.SetTxContext(tx.Hash(), len(b.txs))
-	receipt, err := ApplyTransaction(b.cm.config, bc, &b.header.Coinbase, b.gasPool, b.statedb, b.header, tx, &b.header.GasUsed, vmConfig)
+	receipt, err := ApplyTransaction(evm, b.gasPool, b.statedb, b.header, tx, &b.header.GasUsed)
 	if err != nil {
 		panic(err)
 	}
@@ -346,6 +347,30 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			gen(i, b)
 		}
 
+		var requests [][]byte
+		if config.IsPrague(b.header.Number, b.header.Time) {
+			requests = [][]byte{}
+			// EIP-6110 deposits
+			var blockLogs []*types.Log
+			for _, r := range b.receipts {
+				blockLogs = append(blockLogs, r.Logs...)
+			}
+			if err := ParseDepositLogs(&requests, blockLogs, config); err != nil {
+				panic(fmt.Sprintf("failed to parse deposit log: %v", err))
+			}
+			// create EVM for system calls
+			blockContext := NewEVMBlockContext(b.header, cm, &b.header.Coinbase)
+			evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
+			// EIP-7002
+			ProcessWithdrawalQueue(&requests, evm)
+			// EIP-7251
+			ProcessConsolidationQueue(&requests, evm)
+		}
+		if requests != nil {
+			reqHash := types.CalcRequestsHash(requests)
+			b.header.RequestsHash = &reqHash
+		}
+
 		body := types.Body{Transactions: b.txs, Uncles: b.uncles, Withdrawals: b.withdrawals}
 		block, err := b.engine.FinalizeAndAssemble(cm, b.header, statedb, &body, b.receipts)
 		if err != nil {
@@ -368,7 +393,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	defer triedb.Close()
 
 	for i := 0; i < n; i++ {
-		statedb, err := state.New(parent.Root(), state.NewDatabaseWithNodeDB(db, triedb), nil)
+		statedb, err := state.New(parent.Root(), state.NewDatabase(triedb, nil))
 		if err != nil {
 			panic(err)
 		}
@@ -435,16 +460,15 @@ func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine
 		// Save pre state for proof generation
 		// preState := statedb.Copy()
 
-		// TODO uncomment when the 2935 PR is merged
-		// if config.IsPrague(b.header.Number, b.header.Time) {
-		// if !config.IsPrague(b.parent.Number(), b.parent.Time()) {
-		// Transition case: insert all 256 ancestors
-		// 		InsertBlockHashHistoryAtEip2935Fork(statedb, b.header.Number.Uint64()-1, b.header.ParentHash, chainreader)
-		// 	} else {
-		// 		ProcessParentBlockHash(statedb, b.header.Number.Uint64()-1, b.header.ParentHash)
-		// 	}
-		// }
-		// Execute any user modifications to the block
+		// Pre-execution system calls.
+		if config.IsPrague(b.header.Number, b.header.Time) {
+			// EIP-2935
+			blockContext := NewEVMBlockContext(b.header, cm, &b.header.Coinbase)
+			evm := vm.NewEVM(blockContext, statedb, cm.config, vm.Config{})
+			ProcessParentBlockHash(b.header.ParentHash, evm)
+		}
+
+		// Execute any user modifications to the block.
 		if gen != nil {
 			gen(i, b)
 		}
@@ -458,7 +482,7 @@ func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine
 			panic(err)
 		}
 
-		// Write state changes to db
+		// Write state changes to DB.
 		root, err := statedb.Commit(b.header.Number.Uint64(), config.IsEIP158(b.header.Number))
 		if err != nil {
 			panic(fmt.Sprintf("state write error: %v", err))
@@ -467,15 +491,14 @@ func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine
 			panic(fmt.Sprintf("trie write error: %v", err))
 		}
 
-		// TODO uncomment when proof generation is merged
-		// proofs = append(proofs, block.ExecutionWitness().VerkleProof)
-		// keyvals = append(keyvals, block.ExecutionWitness().StateDiff)
+		proofs = append(proofs, block.ExecutionWitness().VerkleProof)
+		keyvals = append(keyvals, block.ExecutionWitness().StateDiff)
 
 		return block, b.receipts
 	}
 
 	for i := 0; i < n; i++ {
-		statedb, err := state.New(parent.Root(), state.NewDatabaseWithNodeDB(db, trdb), nil)
+		statedb, err := state.New(parent.Root(), state.NewDatabase(trdb, nil))
 		if err != nil {
 			panic(err)
 		}
