@@ -64,29 +64,28 @@ var (
 	}
 	// EphemeryChainConfig contains the chain parameters to run a node on the Ephemery test network.
 	EphemeryChainConfig = &ChainConfig{
-		ChainID:                       big.NewInt(39438000),
-		HomesteadBlock:                big.NewInt(0),
-		DAOForkBlock:                  nil,
-		DAOForkSupport:                true,
-		EIP150Block:                   big.NewInt(0),
-		EIP155Block:                   big.NewInt(0),
-		EIP158Block:                   big.NewInt(0),
-		ByzantiumBlock:                big.NewInt(0),
-		ConstantinopleBlock:           big.NewInt(0),
-		PetersburgBlock:               big.NewInt(0),
-		IstanbulBlock:                 big.NewInt(0),
-		MuirGlacierBlock:              nil,
-		BerlinBlock:                   big.NewInt(0),
-		LondonBlock:                   big.NewInt(0),
-		ArrowGlacierBlock:             nil,
-		GrayGlacierBlock:              nil,
-		TerminalTotalDifficulty:       big.NewInt(0),
-		TerminalTotalDifficultyPassed: true,
-		MergeNetsplitBlock:            nil,
-		ShanghaiTime:                  newUint64(1696000704),
-		CancunTime:                    newUint64(1707305664),
-		Ethash:                        new(EthashConfig),
-		EphemeralTime:                 uint64(604800), // 7 days in seconds TODO: rename as reset
+		ChainID:                 big.NewInt(39438000),
+		HomesteadBlock:          big.NewInt(0),
+		DAOForkBlock:            nil,
+		DAOForkSupport:          true,
+		EIP150Block:             big.NewInt(0),
+		EIP155Block:             big.NewInt(0),
+		EIP158Block:             big.NewInt(0),
+		ByzantiumBlock:          big.NewInt(0),
+		ConstantinopleBlock:     big.NewInt(0),
+		PetersburgBlock:         big.NewInt(0),
+		IstanbulBlock:           big.NewInt(0),
+		MuirGlacierBlock:        nil,
+		BerlinBlock:             big.NewInt(0),
+		LondonBlock:             big.NewInt(0),
+		ArrowGlacierBlock:       nil,
+		GrayGlacierBlock:        nil,
+		TerminalTotalDifficulty: big.NewInt(0),
+		MergeNetsplitBlock:      nil,
+		ShanghaiTime:            newUint64(1696000704),
+		CancunTime:              newUint64(1707305664),
+		Ethash:                  new(EthashConfig),
+		GenesisInterval:         uint64(2419200), // 4 weeks in seconds
 	}
 	// HoleskyChainConfig contains the chain parameters to run a node on the Holesky test network.
 	HoleskyChainConfig = &ChainConfig{
@@ -358,9 +357,9 @@ type ChainConfig struct {
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
-	// EphemeralTime is a flag that is added to support the Ephemery network
+	// GenesisInterval is a flag that is added to support the Ephemery network
 	// EIP-6916 implements the Ephemery testnet (https://github.com/ethereum/EIPs/blob/master/EIPS/eip-6916.md)
-	EphemeralTime uint64 `json:"ephemeral"`
+	GenesisInterval uint64 `json:"ephemeral"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
